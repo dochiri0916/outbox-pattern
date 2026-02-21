@@ -17,6 +17,7 @@ public class CreatePostFacade {
 
     public CreatePostUseCase.Output execute(CreatePostUseCase.Input input, MultipartFile file) {
         String temporaryStorageKey = generateTemporaryStorageKey(file.getOriginalFilename());
+        uploadToTemporaryStorage(file, temporaryStorageKey);
 
         CreatePostUseCase.Input useCaseInput = new CreatePostUseCase.Input(
                         input.title(),

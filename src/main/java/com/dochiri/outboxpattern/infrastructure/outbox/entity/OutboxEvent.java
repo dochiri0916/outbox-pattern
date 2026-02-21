@@ -77,6 +77,9 @@ public class OutboxEvent {
     }
 
     public void failed(int maxRetryCount) {
+        if (this.status != OutboxEventStatus.PROCESSING) {
+            throw new IllegalStateException("Only PROCESSING events can be marked as failed");
+        }
         this.retryCount++;
         if (this.retryCount >= maxRetryCount) {
             this.status = OutboxEventStatus.FAILED;

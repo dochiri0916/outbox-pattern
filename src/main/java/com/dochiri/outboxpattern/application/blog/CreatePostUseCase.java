@@ -1,5 +1,6 @@
 package com.dochiri.outboxpattern.application.blog;
 
+import com.dochiri.outboxpattern.common.outbox.PostFileUploadPayload;
 import com.dochiri.outboxpattern.domain.blog.Post;
 import com.dochiri.outboxpattern.domain.blog.PostRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.AggregateType;
@@ -35,10 +36,6 @@ public class CreatePostUseCase {
     }
 
     public record Output(Long postId) {
-
-    }
-
-    public record PostFileUploadPayload(Long postId, String temporaryFilePath, String storageKey, long fileSize, String contentType) {
 
     }
 

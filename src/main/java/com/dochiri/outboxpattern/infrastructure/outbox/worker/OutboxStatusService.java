@@ -13,7 +13,7 @@ public class OutboxStatusService {
     private final OutboxEventRepository outboxEventRepository;
 
     @Transactional
-    public OutboxEvent markProcessing(Long id) {
+    public OutboxEventContext markProcessing(Long id) {
         OutboxEvent event = outboxEventRepository.findByIdForUpdate(id)
                 .orElse(null);
 
@@ -22,7 +22,7 @@ public class OutboxStatusService {
         }
 
         event.processing();
-        return event;
+        return new OutboxEventContext(event.getId(), event.getEventType(), event.getPayload());
     }
 
     @Transactional
