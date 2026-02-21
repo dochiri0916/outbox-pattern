@@ -5,6 +5,7 @@ import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventStatus;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventType;
 import com.dochiri.outboxpattern.infrastructure.outbox.handler.OutboxEventHandler;
 import com.dochiri.outboxpattern.infrastructure.outbox.repository.OutboxEventRepository;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
+@Slf4j
 @RequiredArgsConstructor
 public class OutboxWorker {
 
@@ -34,23 +36,26 @@ public class OutboxWorker {
     }
 
     private void process(Long outboxEventId) {
-        OutboxEvent processingEvent = outboxStatusService.markProcessing(outboxEventId);
+        OutboxEventContext processingEvent = outboxStatusService.markProcessing(outboxEventId);
 
         if (processingEvent == null) {
             return;
         }
 
         try {
-            OutboxEventHandler handler = findHandler(processingEvent.getEventType());
+            OutboxEventHandler handler = findHandler(processingEvent.eventType());
 
             handler.handle(processingEvent);
-            outboxStatusService.markCompleted(processingEvent.getId());
+            outboxStatusService.markCompleted(processingEvent.id());
         } catch (Exception e) {
-            outboxStatusService.markFailed(processingEvent.getId(), MAX_RETRY_COUNT);
+            log.error(
+                    "Outbox event processing failed. eventId={}, eventType={}",
+                    processingEvent.id(),
+                    processingEvent.eventType(),
+                    e
+            );
+            outboxStatusService.markFailed(processingEvent.id(), MAX_RETRY_COUNT);
         }
-
-        OutboxEventHandler handler = findHandler(processingEvent.getEventType());
-        handler.handle(processingEvent);
     }
 
     private OutboxEventHandler findHandler(OutboxEventType eventType) {

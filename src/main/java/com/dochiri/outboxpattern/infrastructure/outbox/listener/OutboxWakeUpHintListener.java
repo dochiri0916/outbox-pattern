@@ -12,7 +12,7 @@ public class OutboxWakeUpHintListener {
 
     private final OutboxWorker outboxWorker;
 
-    @Async
+    @Async("outboxExecutor")
     @EventListener
     public void onWakeUp(OutboxWakeUpHintEvent event) {
         outboxWorker.runOnce();

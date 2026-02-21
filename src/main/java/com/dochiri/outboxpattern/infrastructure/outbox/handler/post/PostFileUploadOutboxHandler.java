@@ -1,15 +1,16 @@
 package com.dochiri.outboxpattern.infrastructure.outbox.handler.post;
 
-import com.dochiri.outboxpattern.application.blog.CreatePostUseCase;
 import com.dochiri.outboxpattern.application.storage.port.FileStoragePort;
+import com.dochiri.outboxpattern.common.outbox.PostFileUploadPayload;
 import com.dochiri.outboxpattern.domain.blog.PostFile;
 import com.dochiri.outboxpattern.domain.blog.PostFileRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.serializer.OutboxPayloadSerializer;
-import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEvent;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventType;
 import com.dochiri.outboxpattern.infrastructure.outbox.handler.OutboxEventHandler;
+import com.dochiri.outboxpattern.infrastructure.outbox.worker.OutboxEventContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @RequiredArgsConstructor
@@ -24,11 +25,12 @@ public class PostFileUploadOutboxHandler implements OutboxEventHandler {
         return eventType.equals(OutboxEventType.POST_FILE_UPLOAD);
     }
 
+    @Transactional
     @Override
-    public void handle(OutboxEvent event) {
-        CreatePostUseCase.PostFileUploadPayload payload = outboxPayloadSerializer.deserialize(
-                event.getPayload(),
-                CreatePostUseCase.PostFileUploadPayload.class
+    public void handle(OutboxEventContext eventContext) {
+        PostFileUploadPayload payload = outboxPayloadSerializer.deserialize(
+                eventContext.payload(),
+                PostFileUploadPayload.class
         );
 
         fileStoragePort.copy(payload.temporaryFilePath(), payload.storageKey());
