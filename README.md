@@ -230,8 +230,6 @@ Transactional Outbox는 이 두 요구를 동시에 만족시켰다.
 
 ---
 
-<br>
-
 ## 패키지 구조
 
 ```text
