@@ -113,3 +113,10 @@ presentation.post
 설계 배경, 트러블슈팅, 리팩토링 과정은 벨로그 글에 정리.
 
 - [velog](https://velog.io/@dochiri0916/Outbox-Pattern%EC%9C%BC%EB%A1%9C-%ED%8A%B8%EB%9E%9C%EC%9E%AD%EC%85%98-%EC%9D%B4%ED%9B%84-%EC%9E%91%EC%97%85%EC%9D%84-%EB%B3%B4%EC%9E%A5%ED%95%98%EA%B2%8C-%EB%90%9C-%EC%9D%B4%EC%9C%A0)
+
+## 커밋 메시지 규칙
+
+- Conventional Commits 1.0.0 형식 사용
+- 기본 형식: `<type>: <한국어 설명>`
+- scope 미사용
+- 설명은 한 줄 요약으로 대상과 변경 핵심만 작성
