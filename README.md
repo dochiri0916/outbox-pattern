@@ -1,216 +1,87 @@
-프로젝트를 운영하다 보면 트랜잭션 문제는 늘 "정합성"과 "성능" 사이에서 균형을 요구한다. 이번 글은 파일 I/O가 포함된 쓰기 흐름에서, 왜 `AFTER_COMMIT`만으로는 부족했고 결국 Transactional Outbox로 넘어가게 되었는지에 대한 기록이다.
+# Outbox Pattern Example
 
-핵심은 단순했다. 트랜잭션은 짧게 유지해야 했고, 실패는 유실되면 안 됐다.
+트랜잭션 안에서 비즈니스 데이터(`Post`)와 이벤트(`OutboxEvent`)를 함께 저장하고, 커밋 후 워커가 파일 작업을 처리하는 예제 프로젝트다.
 
+## 핵심 동작
 
-## 시작점: 트랜잭션 기준이 모호했던 코드베이스
+1. API 요청으로 게시글 + 파일 업로드
+2. `Post` 저장과 `OutboxEvent` 저장을 한 트랜잭션으로 처리
+3. 커밋 후 `OutboxWorker`가 이벤트를 읽어 파일 이동/검증/정리 수행
+4. 성공 시 `COMPLETED`, 실패 시 재시도 후 `FAILED` 전이
 
-처음 맡은 코드베이스에는 트랜잭션 기준이 명확하지 않았다. 어떤 쓰기 로직은 트랜잭션 안에 있었고, 어떤 로직은 그렇지 않았다. 일관된 기준이 없으니 장애가 발생했을 때 원인 추적이 어렵고, 정합성 보장 범위도 흐려졌다.
+## 기술 스택
 
-그래서 우선은 "쓰기 작업이면 트랜잭션"이라는 비교적 보수적인 기준으로 정리했다. 단기적으로는 안전한 선택이었다. 데이터 꼬임 가능성이 확실히 줄었기 때문이다.
+- Java 25
+- Spring Boot 4.0.0
+- Spring Data JPA, Spring Web MVC
+- H2 (기본), MySQL 드라이버 포함
+- AWS SDK v2 S3 (로컬 실행은 LocalStack 기준)
 
+## 패키지 구조
 
-## 정합성은 좋아졌지만 커넥션 풀이 버티지 못했다
-
-문제는 파일 I/O였다. 게시글 생성 과정에 파일 업로드/복사/삭제가 섞여 있었고, 트랜잭션 안에서 이 작업들이 실행되면 DB 커넥션을 점유한 채로 외부 I/O를 기다리게 됐다.
-
-결과는 예측 가능했다.
-
-- 트랜잭션 지속 시간 증가
-- 커넥션 반납 지연
-- 피크 트래픽에서 커넥션 풀 고갈 위험 증가
-
-정합성은 챙겼지만 운영 안정성이 흔들렸다.
-
-
-## 첫 번째 개선: AFTER_COMMIT 분리
-
-다음으로 택한 방법은 `@TransactionalEventListener(phase = AFTER_COMMIT)`였다. 비즈니스 데이터 변경은 트랜잭션 안에서 끝내고, 파일 I/O는 커밋 이후로 분리했다.
-
-이 조정으로 트랜잭션은 확실히 짧아졌고, 커넥션 풀 상황도 개선됐다. 여기까지만 보면 해결처럼 보였다.
-
-하지만 운영 관점에서 중요한 질문이 남았다.
-
-> "커밋 이후 작업이 실패하면 그 실패를 어떻게 보존하고, 어떻게 재처리할 것인가?"
-
-
-## AFTER_COMMIT이 해결하지 못한 것
-
-`AFTER_COMMIT` 이후 로직은 말 그대로 트랜잭션 밖에서 실행된다. 이미 데이터는 커밋된 상태고, 이후 단계의 실패는 롤백으로 복구할 수 없다.
-
-더 큰 문제는 "실패 사실의 영속성"이었다.
-
-- 일시 장애로 파일 복사 실패
-- 프로세스 재시작 중 이벤트 유실
-- 외부 스토리지 지연/오류
-
-이런 상황에서 실패를 다시 시도하려면, "실패했음" 혹은 "아직 처리 안 됨"이라는 상태가 DB에 남아 있어야 한다. AFTER_COMMIT 이벤트만으로는 그 기준점을 만들기 어렵다.
-
-즉, 트랜잭션을 짧게 만드는 데는 성공했지만, 트랜잭션 이후 작업의 정합성과 복구 가능성은 충분히 확보하지 못했다.
-
-
-## 선택 기준을 다시 세웠다
-
-다시 정리하면 요구사항은 두 가지였다.
-
-1. 트랜잭션은 짧아야 한다.
-2. 커밋 이후 작업 실패는 유실되면 안 된다.
-
-모든 작업을 트랜잭션 안으로 되돌리는 것은 성능상 불가능했고, 분산 트랜잭션은 이 시스템 규모에서 운영 복잡도가 과했다.
-
-남는 선택지는 결국 하나였다.
-
-트랜잭션 밖에서 실행될 작업이라도, "실행되어야 한다는 사실"만큼은 트랜잭션 안에 기록한다.
-
-
-## 그래서 Transactional Outbox를 적용했다
-
-Outbox의 핵심은 단순하다.
-
-- Post 저장과 OutboxEvent 저장을 하나의 트랜잭션으로 처리
-- 커밋 이후 Worker가 OutboxEvent를 읽어 파일 작업 수행
-- 성공/실패/재시도 상태를 DB에서 관리
-
-이 방식의 장점은 "실패를 시스템 내부 상태로 관리할 수 있다"는 점이다. 실패가 로그에만 남지 않고, 재처리 가능한 작업 단위로 남는다.
-
-실제 흐름은 아래 코드 조각으로 연결된다.
-
-```java
-// CreatePostFacade
-public CreatePostUseCase.Output execute(CreatePostUseCase.Input input, MultipartFile file) {
-    String temporaryStorageKey = generateTemporaryStorageKey(file.getOriginalFilename());
-    uploadToTemporaryStorage(file, temporaryStorageKey);
-    return createPostUseCase.execute(new CreatePostUseCase.Input(
-            input.title(), input.content(), temporaryStorageKey,
-            file.getOriginalFilename(), file.getSize(), file.getContentType()
-    ));
-}
+```text
+src/main/java/com/dochiri/outboxpattern
+├── presentation     # REST API 컨트롤러
+├── application      # 유스케이스/파사드
+├── domain           # 도메인 엔티티/리포지토리
+├── infrastructure   # outbox, scheduler, s3 adapter, 설정
+└── common           # 공통 payload/DTO
 ```
 
-```java
-// CreatePostUseCase
-@Transactional
-public Output execute(Input input) {
-    Post savedPost = postRepository.save(Post.create(input.title, input.content));
-    String storageKey = "post/%d/%s".formatted(savedPost.getId(), input.originalFileName);
-    PostFileUploadPayload payload = new PostFileUploadPayload(
-            savedPost.getId(), input.temporaryFilePath, storageKey, input.fileSize, input.contentType
-    );
-    outboxEventRecorder.record(AggregateType.POST, savedPost.getId(), OutboxEventType.POST_FILE_UPLOAD, payload);
-    return new Output(savedPost.getId());
-}
+## 빠른 실행
+
+### 1) 사전 준비
+
+- JDK 25
+- Docker (LocalStack 사용 시)
+- AWS CLI (버킷 생성용, 선택)
+
+### 2) LocalStack 실행 및 버킷 생성
+
+```bash
+docker run --rm -it -p 4566:4566 localstack/localstack:latest
+aws --endpoint-url=http://localhost:4566 s3 mb s3://local-test-bucket
 ```
 
-```java
-// OutboxWakeUpHintPublisher
-public void publishAfterCommit() {
-    if (!TransactionSynchronizationManager.isActualTransactionActive()) {
-        applicationEventPublisher.publishEvent(new OutboxWakeUpHintEvent());
-        return;
-    }
-    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-        @Override
-        public void afterCommit() {
-            applicationEventPublisher.publishEvent(new OutboxWakeUpHintEvent());
-        }
-    });
-}
+기본 설정(`src/main/resources/application.yml`)은 아래 값을 사용한다.
+
+- endpoint: `http://localhost:4566`
+- bucket: `local-test-bucket`
+- region/access-key/secret-key: `us-east-1` / `test` / `test`
+
+### 3) 애플리케이션 실행
+
+```bash
+./gradlew bootRun
 ```
 
+- API base URL: `http://localhost:8080`
+- H2 Console: `http://localhost:8080/h2-console`
 
-## 현재 구현에서 가져간 운영 안정성 장치
+## API 예시
 
-이번 구현에서는 다음 장치를 함께 적용했다.
+`POST /api/v1/posts` (`multipart/form-data`)
 
-- `afterCommit` 기반 즉시 힌트 발행 + `@Async("outboxExecutor")` 처리
-- Polling Scheduler 안전망 (`fixedDelay = 30_000`)
-- 상태 머신 기반 전이 (`PENDING -> PROCESSING -> COMPLETED/FAILED`)
-- 최대 재시도 초과 시 `FAILED`
-- `PROCESSING` 상태가 아니면 `failed()` 불가
-- Worker 실패 로그 기록
-- 파일 처리 순서 고정: `copy -> exists -> delete`
-
-즉시 실행이 실패해도 스케줄러가 회수하고, 처리 실패가 나도 상태와 재시도 횟수로 추적 가능하다.
-
-아래는 Worker/Handler의 실제 처리 코드다.
-
-```java
-// OutboxWakeUpHintListener
-@Async("outboxExecutor")
-@EventListener
-public void onWakeUp(OutboxWakeUpHintEvent event) {
-    outboxWorker.runOnce();
-}
+```bash
+curl -X POST http://localhost:8080/api/v1/posts \
+  -F 'input={"title":"hello","content":"outbox","temporaryFilePath":"ignore","originalFileName":"ignore.txt","fileSize":0,"contentType":"application/octet-stream"};type=application/json' \
+  -F 'file=@./sample.txt'
 ```
 
-```java
-// OutboxWorker
-private void process(Long outboxEventId) {
-    OutboxEventContext processingEvent = outboxStatusService.markProcessing(outboxEventId);
-    if (processingEvent == null) return;
+예상 응답:
 
-    try {
-        OutboxEventHandler handler = findHandler(processingEvent.eventType());
-        handler.handle(processingEvent);
-        outboxStatusService.markCompleted(processingEvent.id());
-    } catch (Exception e) {
-        log.error("Outbox event processing failed. eventId={}, eventType={}",
-                processingEvent.id(), processingEvent.eventType(), e);
-        outboxStatusService.markFailed(processingEvent.id(), 5);
-    }
-}
+```json
+{"postId":1}
 ```
 
-```java
-// PostFileUploadOutboxHandler
-@Transactional
-public void handle(OutboxEventContext eventContext) {
-    PostFileUploadPayload payload = outboxPayloadSerializer.deserialize(
-            eventContext.payload(), PostFileUploadPayload.class
-    );
-    fileStoragePort.copy(payload.temporaryFilePath(), payload.storageKey());
-    if (!fileStoragePort.exists(payload.storageKey())) {
-        throw new IllegalStateException("Failed to upload file to storage: " + payload.storageKey());
-    }
-    fileStoragePort.delete(payload.temporaryFilePath());
-    postFileRepository.save(PostFile.create(
-            payload.postId(), payload.storageKey(), payload.fileSize(), payload.contentType()
-    ));
-}
+## 테스트
+
+```bash
+./gradlew test
 ```
 
-그리고 상태 전이 가드는 엔티티에서 직접 강제한다.
+테스트에서는 `InMemoryFileStoragePort`를 사용하므로 LocalStack 없이 실행할 수 있다.
 
-```java
-// OutboxEvent
-public void failed(int maxRetryCount) {
-    if (this.status != OutboxEventStatus.PROCESSING) {
-        throw new IllegalStateException("Only PROCESSING events can be marked as failed");
-    }
-    this.retryCount++;
-    this.status = (this.retryCount >= maxRetryCount) ? OutboxEventStatus.FAILED : OutboxEventStatus.PENDING;
-}
-```
+## 도입 배경과 설계 기록
 
-
-## 트레이드오프
-
-물론 비용이 없는 선택은 아니다.
-
-- Outbox 테이블 운영 비용
-- Worker/스케줄러 관리 비용
-- 중복 실행 가능성을 고려한 핸들러 설계 필요
-
-그래도 이 비용은 "실패가 유실되는 구조"를 감수하는 비용보다 예측 가능하고 통제 가능하다.
-
-
-## 정리
-
-처음 문제는 트랜잭션이 너무 넓어서 생긴 커넥션 풀 이슈였다. AFTER_COMMIT은 성능 측면 문제를 많이 줄여줬지만, 실패를 복구 가능한 상태로 남기지는 못했다.
-
-Transactional Outbox는 이 두 요구를 동시에 만족시켰다.
-
-- 트랜잭션은 짧게 유지하고
-- 실패는 유실되지 않게 관리한다
-
-결국 핵심은 패턴 자체보다 경계 설정이었다. 무엇을 트랜잭션으로 보장하고, 무엇을 재시도 가능한 작업으로 남길지 결정하는 기준이 시스템 안정성을 만든다.
+- https://velog.io/@dochiri0916/Outbox-Pattern%EC%9C%BC%EB%A1%9C-%ED%8A%B8%EB%9E%9C%EC%9E%AD%EC%85%98-%EC%9D%B4%ED%9B%84-%EC%9E%91%EC%97%85%EC%9D%84-%EB%B3%B4%EC%9E%A5%ED%95%98%EA%B2%8C-%EB%90%9C-%EC%9D%B4%EC%9C%A0
