@@ -1,14 +1,14 @@
 # Outbox Pattern
 
-파일 I/O가 포함된 쓰기 흐름에서, 트랜잭션은 짧게 유지하면서 커밋 이후 작업 유실을 방지하기 위해 Transactional Outbox를 검증한 프로젝트다.
-여기에는 실행 가능한 코드와 핵심 요약만 두고, 설계 배경과 선택 이유는 블로그에 정리했다.
+파일 I/O가 포함된 쓰기 흐름에서, 트랜잭션은 짧게 유지하면서 커밋 이후 작업 유실을 방지하기 위해 Transactional Outbox를 검증한 프로젝트입니다.
+여기에는 실행 가능한 코드와 핵심 요약만 두고, 설계 배경과 선택 이유는 블로그에 정리했습니다.
 
 ## 실험 범위
 
-- `Post` 저장과 `OutboxEvent` 저장을 하나의 트랜잭션으로 처리
-- 커밋 후 `OutboxWorker`가 이벤트를 비동기로 처리
-- 실패 시 상태 전이(`PENDING -> PROCESSING -> FAILED/COMPLETED`)와 재시도로 복구
-- 즉시 힌트 발행(`afterCommit`) + 폴링 스케줄러를 함께 사용해 유실 위험 완화
+- `Post` 저장과 `OutboxEvent` 저장을 하나의 트랜잭션으로 처리합니다.
+- 커밋 후 `OutboxWorker`가 이벤트를 비동기로 처리합니다.
+- 실패 시 상태 전이(`PENDING -> PROCESSING -> FAILED/COMPLETED`)와 재시도로 복구합니다.
+- 즉시 힌트 발행(`afterCommit`) + 폴링 스케줄러를 함께 사용해 유실 위험을 완화합니다.
 
 ## 자세한 내용
 
