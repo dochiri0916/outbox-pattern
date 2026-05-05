@@ -71,6 +71,11 @@ public class S3FileStorageAdapter implements FileStoragePort {
             return true;
         } catch (NoSuchKeyException e) {
             return false;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                return false;
+            }
+            throw e;
         }
     }
 

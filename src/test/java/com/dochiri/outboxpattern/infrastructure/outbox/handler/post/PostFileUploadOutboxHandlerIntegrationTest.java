@@ -1,6 +1,7 @@
 package com.dochiri.outboxpattern.infrastructure.outbox.handler.post;
 
 import com.dochiri.outboxpattern.application.post.event.PostFileUploadRequestedEvent;
+import com.dochiri.outboxpattern.domain.PostFile;
 import com.dochiri.outboxpattern.infrastructure.adapter.out.persistence.PostFileJpaRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import com.dochiri.outboxpattern.infrastructure.outbox.serializer.OutboxPayloadSerializer;
@@ -62,6 +63,44 @@ class PostFileUploadOutboxHandlerIntegrationTest {
 
         assertThrows(IllegalStateException.class, () -> handler.handle(eventContext));
         assertEquals(0, postFileRepository.count());
+    }
+
+    @Test
+    void should_succeed_when_final_file_already_exists_and_temporary_file_is_missing() {
+        String temporaryPath = "temporary/1/file.txt";
+        String finalPath = "post/1/file.txt";
+        fileStoragePort.addObject(finalPath);
+
+        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
+
+        handler.handle(eventContext);
+
+        assertEquals(1, postFileRepository.count());
+    }
+
+    @Test
+    void should_succeed_without_duplicate_when_same_post_file_already_exists() {
+        String temporaryPath = "temporary/1/file.txt";
+        String finalPath = "post/1/file.txt";
+        postFileRepository.save(PostFile.create(1L, finalPath, 100L, "text/plain"));
+
+        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
+
+        handler.handle(eventContext);
+
+        assertEquals(1, postFileRepository.count());
+    }
+
+    @Test
+    void should_throw_when_existing_post_file_metadata_conflicts() {
+        String temporaryPath = "temporary/1/file.txt";
+        String finalPath = "post/1/file.txt";
+        postFileRepository.save(PostFile.create(2L, finalPath, 100L, "text/plain"));
+
+        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
+
+        assertThrows(IllegalStateException.class, () -> handler.handle(eventContext));
+        assertEquals(1, postFileRepository.count());
     }
 
     private OutboxEventContext createEventContext(Long postId, String temporaryPath, String finalPath) {

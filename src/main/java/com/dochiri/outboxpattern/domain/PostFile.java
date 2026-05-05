@@ -5,8 +5,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.Objects;
-
 import static java.util.Objects.requireNonNull;
 
 @Entity
@@ -48,6 +46,12 @@ public class PostFile {
 
     public static PostFile create(Long postId, String storageKey, long fileSize, String contentType) {
         return new PostFile(postId, storageKey, fileSize, contentType);
+    }
+
+    public boolean hasSameMetadata(Long postId, long fileSize, String contentType) {
+        return this.postId.equals(postId)
+                && this.fileSize == fileSize
+                && this.contentType.equals(contentType);
     }
 
 }

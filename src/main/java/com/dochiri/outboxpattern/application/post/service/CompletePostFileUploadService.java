@@ -19,7 +19,13 @@ public class CompletePostFileUploadService implements CompletePostFileUploadUseC
     @Transactional
     @Override
     public void complete(CompletePostFileUploadCommand command) {
-        fileStoragePort.copy(command.temporaryFilePath(), command.storageKey());
+        if (alreadyCompleted(command)) {
+            return;
+        }
+
+        if (!fileStoragePort.exists(command.storageKey())) {
+            fileStoragePort.copy(command.temporaryFilePath(), command.storageKey());
+        }
 
         if (!fileStoragePort.exists(command.storageKey())) {
             throw new IllegalStateException("Failed to upload file to storage: " + command.storageKey());
@@ -27,12 +33,29 @@ public class CompletePostFileUploadService implements CompletePostFileUploadUseC
 
         fileStoragePort.delete(command.temporaryFilePath());
 
+        if (alreadyCompleted(command)) {
+            return;
+        }
+
         postFileRepository.save(PostFile.create(
                 command.postId(),
                 command.storageKey(),
                 command.fileSize(),
                 command.contentType()
         ));
+    }
+
+    private boolean alreadyCompleted(CompletePostFileUploadCommand command) {
+        return postFileRepository.findByStorageKey(command.storageKey())
+                .map(postFile -> {
+                    if (postFile.hasSameMetadata(command.postId(), command.fileSize(), command.contentType())) {
+                        return true;
+                    }
+                    throw new IllegalStateException(
+                            "PostFile metadata conflicts with storageKey: " + command.storageKey()
+                    );
+                })
+                .orElse(false);
     }
 
 }

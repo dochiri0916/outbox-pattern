@@ -5,6 +5,8 @@ import com.dochiri.outboxpattern.domain.PostFile;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.Optional;
+
 @Repository
 @RequiredArgsConstructor
 public class PostFileJpaAdapter implements PostFileRepository {
@@ -20,6 +22,16 @@ public class PostFileJpaAdapter implements PostFileRepository {
     public PostFile loadById(Long id) {
         return repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("해당 파일을 찾을 수 없습니다."));
+    }
+
+    @Override
+    public boolean existsByStorageKey(String storageKey) {
+        return repository.existsByStorageKey(storageKey);
+    }
+
+    @Override
+    public Optional<PostFile> findByStorageKey(String storageKey) {
+        return repository.findByStorageKey(storageKey);
     }
 
 }
