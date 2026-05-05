@@ -1,8 +1,8 @@
 package com.dochiri.outboxpattern.infrastructure.outbox.handler.post;
 
-import com.dochiri.outboxpattern.common.outbox.PostFileUploadPayload;
-import com.dochiri.outboxpattern.domain.blog.PostFileRepository;
-import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventType;
+import com.dochiri.outboxpattern.application.post.event.PostFileUploadRequestedEvent;
+import com.dochiri.outboxpattern.infrastructure.adapter.out.persistence.PostFileJpaRepository;
+import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import com.dochiri.outboxpattern.infrastructure.outbox.serializer.OutboxPayloadSerializer;
 import com.dochiri.outboxpattern.infrastructure.outbox.worker.OutboxEventContext;
 import com.dochiri.outboxpattern.support.InMemoryFileStoragePort;
@@ -27,7 +27,7 @@ class PostFileUploadOutboxHandlerIntegrationTest {
     private OutboxPayloadSerializer outboxPayloadSerializer;
 
     @Autowired
-    private PostFileRepository postFileRepository;
+    private PostFileJpaRepository postFileRepository;
 
     @Autowired
     private InMemoryFileStoragePort fileStoragePort;
@@ -65,7 +65,7 @@ class PostFileUploadOutboxHandlerIntegrationTest {
     }
 
     private OutboxEventContext createEventContext(Long postId, String temporaryPath, String finalPath) {
-        PostFileUploadPayload payload = new PostFileUploadPayload(
+        PostFileUploadRequestedEvent payload = new PostFileUploadRequestedEvent(
                 postId,
                 temporaryPath,
                 finalPath,
@@ -73,6 +73,6 @@ class PostFileUploadOutboxHandlerIntegrationTest {
                 "text/plain"
         );
         String serializedPayload = outboxPayloadSerializer.serialize(payload);
-        return new OutboxEventContext(1L, OutboxEventType.POST_FILE_UPLOAD, serializedPayload);
+        return new OutboxEventContext(1L, OutboxEventNames.POST_FILE_UPLOAD, serializedPayload);
     }
 }

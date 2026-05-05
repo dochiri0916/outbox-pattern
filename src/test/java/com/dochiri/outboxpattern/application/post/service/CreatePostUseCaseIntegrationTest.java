@@ -1,8 +1,11 @@
-package com.dochiri.outboxpattern.application.blog;
+package com.dochiri.outboxpattern.application.post.service;
 
-import com.dochiri.outboxpattern.domain.blog.PostRepository;
+import com.dochiri.outboxpattern.application.post.port.in.CreatePostUseCase;
+import com.dochiri.outboxpattern.application.post.port.in.dto.CreatePostCommand;
+import com.dochiri.outboxpattern.application.post.port.in.dto.CreatePostResult;
+import com.dochiri.outboxpattern.infrastructure.adapter.out.persistence.PostJpaRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEvent;
-import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventType;
+import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import com.dochiri.outboxpattern.infrastructure.outbox.repository.OutboxEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,7 +24,7 @@ class CreatePostUseCaseIntegrationTest {
     private CreatePostUseCase createPostUseCase;
 
     @Autowired
-    private PostRepository postRepository;
+    private PostJpaRepository postRepository;
 
     @Autowired
     private OutboxEventRepository outboxEventRepository;
@@ -34,7 +37,7 @@ class CreatePostUseCaseIntegrationTest {
 
     @Test
     void should_save_post_and_outbox_event_in_single_use_case_execution() {
-        CreatePostUseCase.Input input = new CreatePostUseCase.Input(
+        CreatePostCommand command = new CreatePostCommand(
                 "title",
                 "content",
                 "temporary/path/file.txt",
@@ -43,13 +46,13 @@ class CreatePostUseCaseIntegrationTest {
                 "text/plain"
         );
 
-        CreatePostUseCase.Output output = createPostUseCase.execute(input);
+        CreatePostResult output = createPostUseCase.execute(command);
 
         assertTrue(postRepository.findById(output.postId()).isPresent());
 
         List<OutboxEvent> events = outboxEventRepository.findAll();
         assertEquals(1, events.size());
         assertEquals(output.postId(), events.get(0).getAggregateId());
-        assertEquals(OutboxEventType.POST_FILE_UPLOAD, events.get(0).getEventType());
+        assertEquals(OutboxEventNames.POST_FILE_UPLOAD, events.get(0).getEventType());
     }
 }

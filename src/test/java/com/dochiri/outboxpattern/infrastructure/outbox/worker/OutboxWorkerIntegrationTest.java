@@ -1,11 +1,10 @@
 package com.dochiri.outboxpattern.infrastructure.outbox.worker;
 
-import com.dochiri.outboxpattern.common.outbox.PostFileUploadPayload;
-import com.dochiri.outboxpattern.domain.blog.PostFileRepository;
-import com.dochiri.outboxpattern.infrastructure.outbox.entity.AggregateType;
+import com.dochiri.outboxpattern.application.post.event.PostFileUploadRequestedEvent;
+import com.dochiri.outboxpattern.infrastructure.adapter.out.persistence.PostFileJpaRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEvent;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventStatus;
-import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventType;
+import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import com.dochiri.outboxpattern.infrastructure.outbox.repository.OutboxEventRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.serializer.OutboxPayloadSerializer;
 import com.dochiri.outboxpattern.support.InMemoryFileStoragePort;
@@ -29,7 +28,7 @@ class OutboxWorkerIntegrationTest {
     private OutboxEventRepository outboxEventRepository;
 
     @Autowired
-    private PostFileRepository postFileRepository;
+    private PostFileJpaRepository postFileRepository;
 
     @Autowired
     private OutboxPayloadSerializer outboxPayloadSerializer;
@@ -96,7 +95,7 @@ class OutboxWorkerIntegrationTest {
     }
 
     private OutboxEvent createPendingEvent(Long postId, String temporaryPath, String finalPath) {
-        PostFileUploadPayload payload = new PostFileUploadPayload(
+        PostFileUploadRequestedEvent payload = new PostFileUploadRequestedEvent(
                 postId,
                 temporaryPath,
                 finalPath,
@@ -105,9 +104,9 @@ class OutboxWorkerIntegrationTest {
         );
         String serialized = outboxPayloadSerializer.serialize(payload);
         OutboxEvent event = OutboxEvent.create(
-                AggregateType.POST,
+                OutboxEventNames.POST,
                 postId,
-                OutboxEventType.POST_FILE_UPLOAD,
+                OutboxEventNames.POST_FILE_UPLOAD,
                 serialized
         );
         return outboxEventRepository.save(event);

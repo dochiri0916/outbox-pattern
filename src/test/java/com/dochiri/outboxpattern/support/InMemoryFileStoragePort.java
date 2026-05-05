@@ -1,6 +1,6 @@
 package com.dochiri.outboxpattern.support;
 
-import com.dochiri.outboxpattern.application.storage.port.FileStoragePort;
+import com.dochiri.outboxpattern.application.storage.port.out.FileStoragePort;
 
 import java.io.IOException;
 import java.io.InputStream;

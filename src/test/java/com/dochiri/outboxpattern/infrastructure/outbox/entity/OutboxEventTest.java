@@ -1,5 +1,6 @@
 package com.dochiri.outboxpattern.infrastructure.outbox.entity;
 
+import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -10,7 +11,7 @@ class OutboxEventTest {
 
     @Test
     void should_transition_from_pending_to_processing_to_completed() {
-        OutboxEvent event = OutboxEvent.create(AggregateType.POST, 1L, OutboxEventType.POST_FILE_UPLOAD, "{}");
+        OutboxEvent event = OutboxEvent.create(OutboxEventNames.POST, 1L, OutboxEventNames.POST_FILE_UPLOAD, "{}");
 
         assertTrue(event.canStartProcessing());
 
@@ -22,7 +23,7 @@ class OutboxEventTest {
 
     @Test
     void should_return_to_pending_when_failed_before_max_retry() {
-        OutboxEvent event = OutboxEvent.create(AggregateType.POST, 1L, OutboxEventType.POST_FILE_UPLOAD, "{}");
+        OutboxEvent event = OutboxEvent.create(OutboxEventNames.POST, 1L, OutboxEventNames.POST_FILE_UPLOAD, "{}");
         event.processing();
 
         event.failed(5);
@@ -33,7 +34,7 @@ class OutboxEventTest {
 
     @Test
     void should_be_failed_when_retry_reaches_max() {
-        OutboxEvent event = OutboxEvent.create(AggregateType.POST, 1L, OutboxEventType.POST_FILE_UPLOAD, "{}");
+        OutboxEvent event = OutboxEvent.create(OutboxEventNames.POST, 1L, OutboxEventNames.POST_FILE_UPLOAD, "{}");
 
         for (int i = 0; i < 5; i++) {
             event.processing();
@@ -46,7 +47,7 @@ class OutboxEventTest {
 
     @Test
     void should_throw_when_failed_called_outside_processing() {
-        OutboxEvent event = OutboxEvent.create(AggregateType.POST, 1L, OutboxEventType.POST_FILE_UPLOAD, "{}");
+        OutboxEvent event = OutboxEvent.create(OutboxEventNames.POST, 1L, OutboxEventNames.POST_FILE_UPLOAD, "{}");
 
         IllegalStateException exception = assertThrows(IllegalStateException.class, () -> event.failed(5));
 
