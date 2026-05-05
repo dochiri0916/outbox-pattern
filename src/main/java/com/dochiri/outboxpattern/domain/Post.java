@@ -1,4 +1,4 @@
-package com.dochiri.outboxpattern.domain.blog;
+package com.dochiri.outboxpattern.domain;
 
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import static java.util.Objects.requireNonNull;
 
 @Entity
+@Table(name = "posts")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Post {
@@ -21,11 +22,13 @@ public class Post {
 
     private String content;
 
+    public Post(String title, String content) {
+        this.title = requireNonNull(title);
+        this.content = content;
+    }
+
     public static Post create(String title, String content) {
-        Post post = new Post();
-        post.title = requireNonNull(title);
-        post.content = content;
-        return post;
+        return new Post(title, content);
     }
 
 }

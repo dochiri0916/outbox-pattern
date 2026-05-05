@@ -1,11 +1,10 @@
-package com.dochiri.outboxpattern.common.outbox;
+package com.dochiri.outboxpattern.application.post.port.in.dto;
 
-public record PostFileUploadPayload(
+public record CompletePostFileUploadCommand(
         Long postId,
         String temporaryFilePath,
         String storageKey,
         long fileSize,
         String contentType
 ) {
-
 }

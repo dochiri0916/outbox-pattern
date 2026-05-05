@@ -1,14 +1,17 @@
-package com.dochiri.outboxpattern.domain.blog;
+package com.dochiri.outboxpattern.domain;
 
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.Objects;
+
 import static java.util.Objects.requireNonNull;
 
 @Entity
 @Table(
+        name = "post_files",
         uniqueConstraints = {
                 @UniqueConstraint(
                         name = "uk_post_file_storage_key",
@@ -36,13 +39,15 @@ public class PostFile {
     @Column(nullable = false)
     private String contentType;
 
+    public PostFile(Long postId, String storageKey, long fileSize, String contentType) {
+        this.postId = requireNonNull(postId);
+        this.storageKey = requireNonNull(storageKey);
+        this.fileSize = fileSize;
+        this.contentType = requireNonNull(contentType);
+    }
+
     public static PostFile create(Long postId, String storageKey, long fileSize, String contentType) {
-        PostFile postFile = new PostFile();
-        postFile.postId = requireNonNull(postId);
-        postFile.storageKey = requireNonNull(storageKey);
-        postFile.fileSize = fileSize;
-        postFile.contentType = requireNonNull(contentType);
-        return postFile;
+        return new PostFile(postId, storageKey, fileSize, contentType);
     }
 
 }

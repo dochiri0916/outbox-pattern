@@ -1,6 +1,6 @@
 package com.dochiri.outboxpattern.infrastructure.storage.s3;
 
-import com.dochiri.outboxpattern.application.storage.port.FileStoragePort;
+import com.dochiri.outboxpattern.application.storage.port.out.FileStoragePort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.sync.RequestBody;

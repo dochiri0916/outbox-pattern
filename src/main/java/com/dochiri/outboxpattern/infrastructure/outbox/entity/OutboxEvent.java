@@ -23,9 +23,8 @@ public class OutboxEvent {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private AggregateType aggregateType;
+    private String aggregateType;
 
     @Column(nullable = false)
     private Long aggregateId;
@@ -37,9 +36,8 @@ public class OutboxEvent {
     @Column(nullable = false)
     private OutboxEventStatus status;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private OutboxEventType eventType;
+    private String eventType;
 
     @Column(nullable = false)
     private int retryCount;
@@ -48,7 +46,7 @@ public class OutboxEvent {
     private LocalDateTime createdAt;
 
     public static OutboxEvent create(
-            AggregateType aggregateType, Long aggregateId, OutboxEventType eventType, String payload
+            String aggregateType, Long aggregateId, String eventType, String payload
     ) {
         OutboxEvent outboxEvent = new OutboxEvent();
         outboxEvent.aggregateType = requireNonNull(aggregateType);

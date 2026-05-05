@@ -1,4 +1,4 @@
-package com.dochiri.outboxpattern.application.storage.port;
+package com.dochiri.outboxpattern.application.storage.port.out;
 
 import java.io.InputStream;
 

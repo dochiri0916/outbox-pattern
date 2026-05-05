@@ -2,7 +2,6 @@ package com.dochiri.outboxpattern.infrastructure.outbox.worker;
 
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEvent;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventStatus;
-import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventType;
 import com.dochiri.outboxpattern.infrastructure.outbox.handler.OutboxEventHandler;
 import com.dochiri.outboxpattern.infrastructure.outbox.repository.OutboxEventRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -58,7 +57,7 @@ public class OutboxWorker {
         }
     }
 
-    private OutboxEventHandler findHandler(OutboxEventType eventType) {
+    private OutboxEventHandler findHandler(String eventType) {
         for (OutboxEventHandler handler : outboxEventHandlers) {
             if (handler.supports(eventType)) {
                 return handler;
