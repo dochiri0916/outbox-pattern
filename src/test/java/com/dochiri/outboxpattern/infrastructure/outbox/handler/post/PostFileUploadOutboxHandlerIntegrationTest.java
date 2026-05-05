@@ -73,6 +73,6 @@ class PostFileUploadOutboxHandlerIntegrationTest {
                 "text/plain"
         );
         String serializedPayload = outboxPayloadSerializer.serialize(payload);
-        return new OutboxEventContext(1L, OutboxEventNames.POST_FILE_UPLOAD, serializedPayload);
+        return new OutboxEventContext(1L, OutboxEventNames.POST_FILE_UPLOAD, serializedPayload, "owner-1");
     }
 }

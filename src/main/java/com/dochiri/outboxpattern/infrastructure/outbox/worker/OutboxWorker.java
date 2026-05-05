@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Component
@@ -16,21 +17,41 @@ import java.util.List;
 @RequiredArgsConstructor
 public class OutboxWorker {
 
-    private static final int BATCH_SIZE = 10;
-    private static final int MAX_RETRY_COUNT = 5;
-
     private final OutboxStatusService outboxStatusService;
     private final List<OutboxEventHandler> outboxEventHandlers;
     private final OutboxEventRepository outboxEventRepository;
+    private final OutboxWorkerProperties properties;
 
     public void runOnce() {
         List<OutboxEvent> pendingEvents = outboxEventRepository.findNextBatch(
                 OutboxEventStatus.PENDING,
-                PageRequest.of(0, BATCH_SIZE)
+                LocalDateTime.now(),
+                PageRequest.of(0, properties.batchSize())
         );
 
         for (OutboxEvent pendingEvent : pendingEvents) {
             process(pendingEvent.getId());
+        }
+    }
+
+    public void recoverTimedOutProcessingEvents() {
+        LocalDateTime timeoutThreshold = LocalDateTime.now().minus(properties.processingTimeout());
+        List<OutboxEvent> timedOutEvents = outboxEventRepository.findTimedOutProcessingBatch(
+                OutboxEventStatus.PROCESSING,
+                timeoutThreshold,
+                PageRequest.of(0, properties.batchSize())
+        );
+
+        for (OutboxEvent timedOutEvent : timedOutEvents) {
+            boolean recovered = outboxStatusService.recoverTimedOutProcessing(
+                    timedOutEvent.getId(),
+                    timeoutThreshold,
+                    properties.maxRetryCount()
+            );
+
+            if (recovered) {
+                log.warn("Recovered timed out PROCESSING outbox event. eventId={}", timedOutEvent.getId());
+            }
         }
     }
 
@@ -45,7 +66,7 @@ public class OutboxWorker {
             OutboxEventHandler handler = findHandler(processingEvent.eventType());
 
             handler.handle(processingEvent);
-            outboxStatusService.markCompleted(processingEvent.id());
+            outboxStatusService.markCompleted(processingEvent.id(), processingEvent.processingOwnerId());
         } catch (Exception e) {
             log.error(
                     "Outbox event processing failed. eventId={}, eventType={}",
@@ -53,7 +74,20 @@ public class OutboxWorker {
                     processingEvent.eventType(),
                     e
             );
-            outboxStatusService.markFailed(processingEvent.id(), MAX_RETRY_COUNT);
+            try {
+                outboxStatusService.markFailed(
+                        processingEvent.id(),
+                        processingEvent.processingOwnerId(),
+                        properties.maxRetryCount(),
+                        e.getMessage()
+                );
+            } catch (IllegalStateException ownerLost) {
+                log.warn(
+                        "Skipped failed transition because outbox event owner was changed. eventId={}",
+                        processingEvent.id(),
+                        ownerLost
+                );
+            }
         }
     }
 

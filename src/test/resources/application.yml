@@ -47,3 +47,11 @@ aws:
     access-key: test
     secret-key: test
     bucket: local-test-bucket
+
+outbox:
+  worker:
+    batch-size: 10
+    max-retry-count: 5
+    processing-timeout: 5m
+    polling-delay: 30s
+    recovery-delay: 30s

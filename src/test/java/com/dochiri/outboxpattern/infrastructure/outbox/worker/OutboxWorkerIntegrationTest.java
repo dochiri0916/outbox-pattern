@@ -15,7 +15,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 
+import java.time.LocalDateTime;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @SpringBootTest(properties = "spring.task.scheduling.enabled=false")
 @Import(TestStorageConfiguration.class)
@@ -26,6 +29,9 @@ class OutboxWorkerIntegrationTest {
 
     @Autowired
     private OutboxEventRepository outboxEventRepository;
+
+    @Autowired
+    private OutboxStatusService outboxStatusService;
 
     @Autowired
     private PostFileJpaRepository postFileRepository;
@@ -73,6 +79,8 @@ class OutboxWorkerIntegrationTest {
         OutboxEvent updated = outboxEventRepository.findById(event.getId()).orElseThrow();
         assertEquals(OutboxEventStatus.PENDING, updated.getStatus());
         assertEquals(1, updated.getRetryCount());
+        assertNotNull(updated.getNextRetryAt());
+        assertNotNull(updated.getLastErrorMessage());
         assertEquals(0, postFileRepository.count());
     }
 
@@ -85,13 +93,31 @@ class OutboxWorkerIntegrationTest {
 
         OutboxEvent event = createPendingEvent(1L, temporaryPath, finalPath);
 
-        for (int i = 0; i < 5; i++) {
-            outboxWorker.runOnce();
-        }
+        OutboxEventContext processingEvent = outboxStatusService.markProcessing(event.getId());
+        outboxStatusService.markFailed(event.getId(), processingEvent.processingOwnerId(), 1, "failed");
 
         OutboxEvent updated = outboxEventRepository.findById(event.getId()).orElseThrow();
         assertEquals(OutboxEventStatus.FAILED, updated.getStatus());
-        assertEquals(5, updated.getRetryCount());
+        assertEquals(1, updated.getRetryCount());
+        assertNotNull(updated.getFailedAt());
+    }
+
+    @Test
+    void should_recover_timed_out_processing_event_to_pending() {
+        String temporaryPath = "temporary/test/source.txt";
+        String finalPath = "post/1/source.txt";
+
+        OutboxEvent event = createPendingEvent(1L, temporaryPath, finalPath);
+        event.processing(LocalDateTime.now().minusMinutes(10), "owner-1");
+        outboxEventRepository.save(event);
+
+        outboxWorker.recoverTimedOutProcessingEvents();
+
+        OutboxEvent updated = outboxEventRepository.findById(event.getId()).orElseThrow();
+        assertEquals(OutboxEventStatus.PENDING, updated.getStatus());
+        assertEquals(1, updated.getRetryCount());
+        assertEquals("PROCESSING timed out", updated.getLastErrorMessage());
+        assertNotNull(updated.getNextRetryAt());
     }
 
     private OutboxEvent createPendingEvent(Long postId, String temporaryPath, String finalPath) {
