@@ -13,3 +13,7 @@
 ## 자세한 내용
 
 [Outbox Pattern으로 트랜잭션 이후 작업을 보장하게 된 이유](https://velog.io/@dochiri0916/Outbox-Pattern%EC%9C%BC%EB%A1%9C-%ED%8A%B8%EB%9E%9C%EC%9E%AD%EC%85%98-%EC%9D%B4%ED%9B%84-%EC%9E%91%EC%97%85%EC%9D%84-%EB%B3%B4%EC%9E%A5%ED%95%98%EA%B2%8C-%EB%90%9C-%EC%9D%B4%EC%9C%A0)
+<br>
+[Outbox Worker가 처리 중 죽으면 PROCESSING 이벤트는 어떻게 복구할까](https://velog.io/@dochiri0916/Outbox-Worker%EA%B0%80-%EC%B2%98%EB%A6%AC-%EC%A4%91-%EC%A3%BD%EC%9C%BC%EB%A9%B4-PROCESSING-%EC%9D%B4%EB%B2%A4%ED%8A%B8%EB%8A%94-%EC%96%B4%EB%96%BB%EA%B2%8C-%EB%B3%B5%EA%B5%AC%ED%95%A0%EA%B9%8C)
+<br>
+[Outbox는 exactly-once를 보장할까](https://velog.io/@dochiri0916/Outbox%EB%8A%94-exactly-once%EB%A5%BC-%EB%B3%B4%EC%9E%A5%ED%95%A0%EA%B9%8C)
