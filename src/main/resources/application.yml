@@ -29,6 +29,8 @@ logging:
 
 app:
   time-zone: UTC
+  staging:
+    dir: /tmp/outbox-staging
 
 aws:
   s3:

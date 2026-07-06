@@ -20,17 +20,17 @@ class CreatePostTransactional {
     private final EventPublisher eventPublisher;
 
     @Transactional
-    CreatePostResult create(CreatePostCommand command, String temporaryKey) {
+    CreatePostResult create(CreatePostCommand command, String localFilePath) {
         Post savedPost = postRepository.save(Post.create(command.title(), command.content()));
 
         String storageKey = generateStorageKey(
                 savedPost.getId(),
-                temporaryKey,
+                localFilePath,
                 command.originalFileName()
         );
         eventPublisher.publish(new PostFileUploadRequestedEvent(
                 savedPost.getId(),
-                temporaryKey,
+                localFilePath,
                 storageKey,
                 command.fileSize(),
                 command.contentType()
@@ -39,9 +39,9 @@ class CreatePostTransactional {
         return new CreatePostResult(savedPost.getId());
     }
 
-    private String generateStorageKey(Long postId, String temporaryFilePath, String originalFileName) {
+    private String generateStorageKey(Long postId, String localFilePath, String originalFileName) {
         String stableFileId = UUID.nameUUIDFromBytes(
-                "%d:%s".formatted(postId, temporaryFilePath).getBytes(StandardCharsets.UTF_8)
+                "%d:%s".formatted(postId, localFilePath).getBytes(StandardCharsets.UTF_8)
         ).toString();
         return "post/%d/%s/%s".formatted(postId, stableFileId, originalFileName);
     }

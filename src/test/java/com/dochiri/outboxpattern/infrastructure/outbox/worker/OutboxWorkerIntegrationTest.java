@@ -7,20 +7,25 @@ import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventStatus;
 import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import com.dochiri.outboxpattern.infrastructure.outbox.repository.OutboxEventRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.serializer.OutboxPayloadSerializer;
+import com.dochiri.outboxpattern.infrastructure.storage.local.LocalFileStaging;
 import com.dochiri.outboxpattern.support.InMemoryFileStoragePort;
 import com.dochiri.outboxpattern.support.TestStorageConfiguration;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 
-import java.time.LocalDateTime;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-@SpringBootTest(properties = "spring.task.scheduling.enabled=false")
+@SpringBootTest(properties = {
+        "spring.task.scheduling.enabled=false",
+        "app.staging.dir=${java.io.tmpdir}/outbox-test-staging"
+})
 @Import(TestStorageConfiguration.class)
 class OutboxWorkerIntegrationTest {
 
@@ -42,6 +47,9 @@ class OutboxWorkerIntegrationTest {
     @Autowired
     private InMemoryFileStoragePort fileStoragePort;
 
+    @Autowired
+    private LocalFileStaging localFileStaging;
+
     @BeforeEach
     void setUp() {
         postFileRepository.deleteAll();
@@ -51,11 +59,13 @@ class OutboxWorkerIntegrationTest {
 
     @Test
     void should_complete_event_when_handler_succeeds() {
-        String temporaryPath = "temporary/test/source.txt";
+        String localPath = localFileStaging.stage(
+                new ByteArrayInputStream("test content".getBytes(StandardCharsets.UTF_8)),
+                "source.txt"
+        );
         String finalPath = "post/1/source.txt";
-        fileStoragePort.addObject(temporaryPath);
 
-        OutboxEvent event = createPendingEvent(1L, temporaryPath, finalPath);
+        OutboxEvent event = createPendingEvent(1L, localPath, finalPath);
 
         outboxWorker.runOnce();
 
@@ -67,12 +77,9 @@ class OutboxWorkerIntegrationTest {
 
     @Test
     void should_retry_and_return_pending_when_handler_fails() {
-        String temporaryPath = "temporary/test/source.txt";
         String finalPath = "post/1/source.txt";
-        fileStoragePort.addObject(temporaryPath);
-        fileStoragePort.setForcedExists(false);
 
-        OutboxEvent event = createPendingEvent(1L, temporaryPath, finalPath);
+        OutboxEvent event = createPendingEvent(1L, "/tmp/nonexistent/file.txt", finalPath);
 
         outboxWorker.runOnce();
 
@@ -86,15 +93,21 @@ class OutboxWorkerIntegrationTest {
 
     @Test
     void should_mark_failed_after_max_retry_count() {
-        String temporaryPath = "temporary/test/source.txt";
+        String localPath = localFileStaging.stage(
+                new ByteArrayInputStream("test content".getBytes(StandardCharsets.UTF_8)),
+                "source.txt"
+        );
         String finalPath = "post/1/source.txt";
-        fileStoragePort.addObject(temporaryPath);
-        fileStoragePort.setForcedExists(false);
 
-        OutboxEvent event = createPendingEvent(1L, temporaryPath, finalPath);
+        OutboxEvent event = createPendingEvent(1L, localPath, finalPath);
 
         OutboxEventContext processingEvent = outboxStatusService.markProcessing(event.getId());
-        outboxStatusService.markFailed(event.getId(), processingEvent.processingOwnerId(), 1, "failed");
+        outboxStatusService.markFailed(
+                event.getId(),
+                processingEvent.processingOwnerId(),
+                1,
+                "failed"
+        );
 
         OutboxEvent updated = outboxEventRepository.findById(event.getId()).orElseThrow();
         assertEquals(OutboxEventStatus.FAILED, updated.getStatus());
@@ -104,10 +117,13 @@ class OutboxWorkerIntegrationTest {
 
     @Test
     void should_recover_timed_out_processing_event_to_pending() {
-        String temporaryPath = "temporary/test/source.txt";
+        String localPath = localFileStaging.stage(
+                new ByteArrayInputStream("test content".getBytes(StandardCharsets.UTF_8)),
+                "source.txt"
+        );
         String finalPath = "post/1/source.txt";
 
-        OutboxEvent event = createPendingEvent(1L, temporaryPath, finalPath);
+        OutboxEvent event = createPendingEvent(1L, localPath, finalPath);
         event.processing(LocalDateTime.now().minusMinutes(10), "owner-1");
         outboxEventRepository.save(event);
 
@@ -120,10 +136,10 @@ class OutboxWorkerIntegrationTest {
         assertNotNull(updated.getNextRetryAt());
     }
 
-    private OutboxEvent createPendingEvent(Long postId, String temporaryPath, String finalPath) {
+    private OutboxEvent createPendingEvent(Long postId, String localPath, String finalPath) {
         PostFileUploadRequestedEvent payload = new PostFileUploadRequestedEvent(
                 postId,
-                temporaryPath,
+                localPath,
                 finalPath,
                 100L,
                 "text/plain"

@@ -6,8 +6,11 @@ import com.dochiri.outboxpattern.infrastructure.adapter.out.persistence.PostFile
 import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import com.dochiri.outboxpattern.infrastructure.outbox.serializer.OutboxPayloadSerializer;
 import com.dochiri.outboxpattern.infrastructure.outbox.worker.OutboxEventContext;
+import com.dochiri.outboxpattern.infrastructure.storage.local.LocalFileStaging;
 import com.dochiri.outboxpattern.support.InMemoryFileStoragePort;
 import com.dochiri.outboxpattern.support.TestStorageConfiguration;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +20,10 @@ import org.springframework.context.annotation.Import;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-@SpringBootTest(properties = "spring.task.scheduling.enabled=false")
+@SpringBootTest(properties = {
+        "spring.task.scheduling.enabled=false",
+        "app.staging.dir=${java.io.tmpdir}/outbox-test-staging"
+})
 @Import(TestStorageConfiguration.class)
 class PostFileUploadOutboxHandlerIntegrationTest {
 
@@ -33,6 +39,9 @@ class PostFileUploadOutboxHandlerIntegrationTest {
     @Autowired
     private InMemoryFileStoragePort fileStoragePort;
 
+    @Autowired
+    private LocalFileStaging localFileStaging;
+
     @BeforeEach
     void setUp() {
         postFileRepository.deleteAll();
@@ -40,12 +49,14 @@ class PostFileUploadOutboxHandlerIntegrationTest {
     }
 
     @Test
-    void should_save_post_file_when_copy_and_exists_succeed() {
-        String temporaryPath = "temporary/1/file.txt";
-        String finalPath = "post/1/file.txt";
-        fileStoragePort.addObject(temporaryPath);
+    void should_upload_to_s3_and_save_post_file() {
+        String localPath = localFileStaging.stage(
+                new ByteArrayInputStream("test content".getBytes(StandardCharsets.UTF_8)),
+                "test.txt"
+        );
+        String finalPath = "post/1/test.txt";
 
-        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
+        OutboxEventContext eventContext = createEventContext(1L, localPath, finalPath);
 
         handler.handle(eventContext);
 
@@ -53,38 +64,33 @@ class PostFileUploadOutboxHandlerIntegrationTest {
     }
 
     @Test
-    void should_throw_and_not_save_when_exists_check_fails() {
-        String temporaryPath = "temporary/1/file.txt";
-        String finalPath = "post/1/file.txt";
-        fileStoragePort.addObject(temporaryPath);
-        fileStoragePort.setForcedExists(false);
+    void should_succeed_when_s3_already_has_file_and_local_file_is_missing() {
+        String finalPath = "post/1/test.txt";
+        fileStoragePort.addObject(finalPath);
 
-        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
+        OutboxEventContext eventContext = createEventContext(1L, "/tmp/nonexistent/file.txt", finalPath);
+
+        handler.handle(eventContext);
+
+        assertEquals(1, postFileRepository.count());
+    }
+
+    @Test
+    void should_throw_when_local_file_missing_and_s3_does_not_have_file() {
+        String finalPath = "post/1/test.txt";
+
+        OutboxEventContext eventContext = createEventContext(1L, "/tmp/nonexistent/file.txt", finalPath);
 
         assertThrows(IllegalStateException.class, () -> handler.handle(eventContext));
         assertEquals(0, postFileRepository.count());
     }
 
     @Test
-    void should_succeed_when_final_file_already_exists_and_temporary_file_is_missing() {
-        String temporaryPath = "temporary/1/file.txt";
-        String finalPath = "post/1/file.txt";
-        fileStoragePort.addObject(finalPath);
-
-        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
-
-        handler.handle(eventContext);
-
-        assertEquals(1, postFileRepository.count());
-    }
-
-    @Test
     void should_succeed_without_duplicate_when_same_post_file_already_exists() {
-        String temporaryPath = "temporary/1/file.txt";
-        String finalPath = "post/1/file.txt";
+        String finalPath = "post/1/test.txt";
         postFileRepository.save(PostFile.create(1L, finalPath, 100L, "text/plain"));
 
-        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
+        OutboxEventContext eventContext = createEventContext(1L, "/tmp/nonexistent/file.txt", finalPath);
 
         handler.handle(eventContext);
 
@@ -93,20 +99,19 @@ class PostFileUploadOutboxHandlerIntegrationTest {
 
     @Test
     void should_throw_when_existing_post_file_metadata_conflicts() {
-        String temporaryPath = "temporary/1/file.txt";
-        String finalPath = "post/1/file.txt";
+        String finalPath = "post/1/test.txt";
         postFileRepository.save(PostFile.create(2L, finalPath, 100L, "text/plain"));
 
-        OutboxEventContext eventContext = createEventContext(1L, temporaryPath, finalPath);
+        OutboxEventContext eventContext = createEventContext(1L, "/tmp/nonexistent/file.txt", finalPath);
 
         assertThrows(IllegalStateException.class, () -> handler.handle(eventContext));
         assertEquals(1, postFileRepository.count());
     }
 
-    private OutboxEventContext createEventContext(Long postId, String temporaryPath, String finalPath) {
+    private OutboxEventContext createEventContext(Long postId, String localPath, String finalPath) {
         PostFileUploadRequestedEvent payload = new PostFileUploadRequestedEvent(
                 postId,
-                temporaryPath,
+                localPath,
                 finalPath,
                 100L,
                 "text/plain"

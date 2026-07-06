@@ -4,7 +4,7 @@ import com.dochiri.outboxpattern.application.event.ApplicationEvent;
 
 public record PostFileUploadRequestedEvent(
         Long postId,
-        String temporaryFilePath,
+        String localFilePath,
         String storageKey,
         long fileSize,
         String contentType

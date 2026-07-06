@@ -9,6 +9,8 @@ import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames
 import com.dochiri.outboxpattern.infrastructure.outbox.serializer.OutboxPayloadSerializer;
 import com.dochiri.outboxpattern.infrastructure.outbox.handler.OutboxEventHandler;
 import com.dochiri.outboxpattern.infrastructure.outbox.worker.OutboxEventContext;
+import com.dochiri.outboxpattern.infrastructure.storage.local.LocalFileStaging;
+import java.io.InputStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +22,7 @@ public class PostFileUploadOutboxHandler implements OutboxEventHandler {
     private final OutboxPayloadSerializer outboxPayloadSerializer;
     private final FileStoragePort fileStoragePort;
     private final PostFileRepository postFileRepository;
+    private final LocalFileStaging localFileStaging;
 
     @Override
     public boolean supports(String eventType) {
@@ -37,12 +40,11 @@ public class PostFileUploadOutboxHandler implements OutboxEventHandler {
             return;
         }
 
-        copyToPermanentStorage(event);
-        fileStoragePort.delete(event.temporaryFilePath());
+        uploadToS3(event);
+        localFileStaging.delete(event.localFilePath());
 
         completePostFileUploadUseCase.complete(new CompletePostFileUploadCommand(
                 event.postId(),
-                event.temporaryFilePath(),
                 event.storageKey(),
                 event.fileSize(),
                 event.contentType()
@@ -62,13 +64,22 @@ public class PostFileUploadOutboxHandler implements OutboxEventHandler {
                 .orElse(false);
     }
 
-    private void copyToPermanentStorage(PostFileUploadRequestedEvent event) {
-        if (!fileStoragePort.exists(event.storageKey())) {
-            fileStoragePort.copy(event.temporaryFilePath(), event.storageKey());
+    private void uploadToS3(PostFileUploadRequestedEvent event) {
+        if (fileStoragePort.exists(event.storageKey())) {
+            return;
         }
 
-        if (!fileStoragePort.exists(event.storageKey())) {
-            throw new IllegalStateException("Failed to upload file to storage: " + event.storageKey());
+        try (InputStream inputStream = localFileStaging.read(event.localFilePath())) {
+            fileStoragePort.upload(
+                    event.storageKey(),
+                    inputStream,
+                    event.fileSize(),
+                    event.contentType()
+            );
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to upload staged file to storage: " + event.localFilePath(), e
+            );
         }
     }
 

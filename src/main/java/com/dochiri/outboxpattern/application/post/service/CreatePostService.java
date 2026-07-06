@@ -3,8 +3,7 @@ package com.dochiri.outboxpattern.application.post.service;
 import com.dochiri.outboxpattern.application.post.port.in.CreatePostUseCase;
 import com.dochiri.outboxpattern.application.post.port.in.dto.CreatePostCommand;
 import com.dochiri.outboxpattern.application.post.port.in.dto.CreatePostResult;
-import com.dochiri.outboxpattern.application.storage.port.out.FileStoragePort;
-import java.util.UUID;
+import com.dochiri.outboxpattern.infrastructure.storage.local.LocalFileStaging;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -12,23 +11,16 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class CreatePostService implements CreatePostUseCase {
 
-    private final FileStoragePort fileStoragePort;
+    private final LocalFileStaging localFileStaging;
     private final CreatePostTransactional transactional;
 
     @Override
     public CreatePostResult execute(CreatePostCommand command) {
-        String temporaryKey = generateTemporaryStorageKey(command.originalFileName());
-        fileStoragePort.upload(
-                temporaryKey,
+        String localFilePath = localFileStaging.stage(
                 command.inputStream(),
-                command.fileSize(),
-                command.contentType()
+                command.originalFileName()
         );
-        return transactional.create(command, temporaryKey);
-    }
-
-    private String generateTemporaryStorageKey(String originalFileName) {
-        return "temporary/%s/%s".formatted(UUID.randomUUID(), originalFileName);
+        return transactional.create(command, localFilePath);
     }
 
 }

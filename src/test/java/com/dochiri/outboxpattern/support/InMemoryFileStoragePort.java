@@ -10,8 +10,6 @@ import java.util.Set;
 public class InMemoryFileStoragePort implements FileStoragePort {
 
     private final Set<String> objects = new HashSet<>();
-    private Boolean forcedExists;
-    private boolean throwOnCopy;
 
     @Override
     public void upload(String objectKey, InputStream inputStream, long contentLength, String contentType) {
@@ -33,9 +31,6 @@ public class InMemoryFileStoragePort implements FileStoragePort {
 
     @Override
     public void copy(String sourceKey, String destinationKey) {
-        if (throwOnCopy) {
-            throw new IllegalStateException("Copy failed intentionally");
-        }
         if (!objects.contains(sourceKey)) {
             throw new IllegalStateException("Source object not found: " + sourceKey);
         }
@@ -49,9 +44,6 @@ public class InMemoryFileStoragePort implements FileStoragePort {
 
     @Override
     public boolean exists(String objectKey) {
-        if (forcedExists != null) {
-            return forcedExists;
-        }
         return objects.contains(objectKey);
     }
 
@@ -59,17 +51,7 @@ public class InMemoryFileStoragePort implements FileStoragePort {
         objects.add(objectKey);
     }
 
-    public void setForcedExists(Boolean forcedExists) {
-        this.forcedExists = forcedExists;
-    }
-
-    public void setThrowOnCopy(boolean throwOnCopy) {
-        this.throwOnCopy = throwOnCopy;
-    }
-
     public void clear() {
         objects.clear();
-        forcedExists = null;
-        throwOnCopy = false;
     }
 }
