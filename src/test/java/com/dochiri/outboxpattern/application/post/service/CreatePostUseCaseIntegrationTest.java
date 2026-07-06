@@ -7,17 +7,22 @@ import com.dochiri.outboxpattern.infrastructure.adapter.out.persistence.PostJpaR
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEvent;
 import com.dochiri.outboxpattern.infrastructure.outbox.recorder.OutboxEventNames;
 import com.dochiri.outboxpattern.infrastructure.outbox.repository.OutboxEventRepository;
+import com.dochiri.outboxpattern.support.InMemoryFileStoragePort;
+import com.dochiri.outboxpattern.support.TestStorageConfiguration;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-
-import java.util.List;
+import org.springframework.context.annotation.Import;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(properties = "spring.task.scheduling.enabled=false")
+@Import(TestStorageConfiguration.class)
 class CreatePostUseCaseIntegrationTest {
 
     @Autowired
@@ -29,10 +34,14 @@ class CreatePostUseCaseIntegrationTest {
     @Autowired
     private OutboxEventRepository outboxEventRepository;
 
+    @Autowired
+    private InMemoryFileStoragePort fileStoragePort;
+
     @BeforeEach
     void setUp() {
         outboxEventRepository.deleteAll();
         postRepository.deleteAll();
+        fileStoragePort.clear();
     }
 
     @Test
@@ -40,9 +49,9 @@ class CreatePostUseCaseIntegrationTest {
         CreatePostCommand command = new CreatePostCommand(
                 "title",
                 "content",
-                "temporary/path/file.txt",
+                new ByteArrayInputStream("test content".getBytes(StandardCharsets.UTF_8)),
                 "file.txt",
-                100L,
+                "test content".getBytes(StandardCharsets.UTF_8).length,
                 "text/plain"
         );
 
