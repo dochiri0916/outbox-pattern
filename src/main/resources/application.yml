@@ -9,6 +9,7 @@ spring:
     hibernate:
       ddl-auto: update
     properties:
+      jakarta.persistence.lock.timeout: ${OUTBOX_LOCK_WAIT_TIMEOUT_MS:1000}
       hibernate:
         jdbc:
           time_zone: ${app.time-zone}
@@ -27,6 +28,12 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+
 app:
   time-zone: UTC
   staging:
@@ -39,11 +46,17 @@ aws:
     access-key: test
     secret-key: test
     bucket: local-test-bucket
+    api-call-timeout: 2m
 
 outbox:
   worker:
     batch-size: 10
-    max-retry-count: 5
+    max-retry-count: 3
     processing-timeout: 5m
     polling-delay: 30s
     recovery-delay: 30s
+    retry-backoff-base: 10s
+    retry-backoff-max: 5m
+    retry-jitter-ratio: 0.5
+    multipart-part-size-bytes: 5242880
+    claim-strategy: skip-locked

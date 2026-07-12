@@ -6,6 +6,14 @@ public interface FileStoragePort {
 
     void upload(String objectKey, InputStream inputStream, long contentLength, String contentType);
 
+    default boolean uploadIfAbsent(String objectKey, InputStream inputStream, long contentLength, String contentType) {
+        if (exists(objectKey)) {
+            return false;
+        }
+        upload(objectKey, inputStream, contentLength, contentType);
+        return true;
+    }
+
     byte[] download(String objectKey);
 
     void copy(String sourceKey, String destinationKey);

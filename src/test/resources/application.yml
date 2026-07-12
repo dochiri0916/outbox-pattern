@@ -19,6 +19,7 @@ spring:
     hibernate:
       ddl-auto: create-drop
     properties:
+      jakarta.persistence.lock.timeout: 1000
       hibernate:
         jdbc:
           time_zone: ${app.time-zone}
@@ -47,11 +48,17 @@ aws:
     access-key: test
     secret-key: test
     bucket: local-test-bucket
+    api-call-timeout: 2m
 
 outbox:
   worker:
     batch-size: 10
-    max-retry-count: 5
+    max-retry-count: 3
     processing-timeout: 5m
     polling-delay: 30s
     recovery-delay: 30s
+    retry-backoff-base: 10s
+    retry-backoff-max: 5m
+    retry-jitter-ratio: 0.5
+    multipart-part-size-bytes: 5242880
+    claim-strategy: skip-locked

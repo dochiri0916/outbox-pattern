@@ -1,19 +1,29 @@
 package com.dochiri.outboxpattern.infrastructure.outbox.entity;
 
-import jakarta.persistence.*;
+import com.dochiri.outboxpattern.infrastructure.outbox.failure.OutboxFailure;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
-import static java.util.Objects.*;
+import static java.util.Objects.requireNonNull;
 
 @Entity
 @Table(
         indexes = {
                 @Index(name = "idx_outbox_event_status_retry_created", columnList = "status, next_retry_at, created_at"),
-                @Index(name = "idx_outbox_event_status_processing_started", columnList = "status, processing_started_at")
+                @Index(name = "idx_outbox_event_status_lease", columnList = "status, lease_until")
         }
 )
 @Getter
@@ -43,10 +53,26 @@ public class OutboxEvent {
     @Column(nullable = false)
     private int retryCount;
 
+    @Column(nullable = false)
+    private int attemptCount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_type")
+    private OutboxFailureType failureType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code")
+    private OutboxFailureCode failureCode;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    private LocalDateTime processingStartedAt;
+    @Column(name = "processing_started_at")
+    private LocalDateTime attemptStartedAt;
+
+    private LocalDateTime lastProgressAt;
+
+    private LocalDateTime leaseUntil;
 
     private String processingOwnerId;
 
@@ -59,6 +85,11 @@ public class OutboxEvent {
     @Column(length = 1000)
     private String lastErrorMessage;
 
+    @Column(length = 255)
+    private String lastExceptionType;
+
+    private LocalDateTime firstFailedAt;
+
     public static OutboxEvent create(
             String aggregateType, Long aggregateId, String eventType, String payload
     ) {
@@ -69,6 +100,7 @@ public class OutboxEvent {
         outboxEvent.payload = requireNonNull(payload);
         outboxEvent.status = OutboxEventStatus.PENDING;
         outboxEvent.retryCount = 0;
+        outboxEvent.attemptCount = 0;
         outboxEvent.createdAt = LocalDateTime.now();
         return outboxEvent;
     }
@@ -78,13 +110,22 @@ public class OutboxEvent {
                 && (this.nextRetryAt == null || !this.nextRetryAt.isAfter(now));
     }
 
-    public void processing(LocalDateTime now, String processingOwnerId) {
-        if (!canStartProcessing(now)) {
+    public void processing(LocalDateTime now, String processingOwnerId, LocalDateTime leaseUntil) {
+        LocalDateTime startedAt = requireNonNull(now);
+        LocalDateTime lease = requireNonNull(leaseUntil);
+        if (!canStartProcessing(startedAt)) {
             throw new IllegalStateException("OutboxEvent is not processing");
         }
+        if (!lease.isAfter(startedAt)) {
+            throw new IllegalArgumentException("Lease must be after processing start time");
+        }
         this.status = OutboxEventStatus.PROCESSING;
-        this.processingStartedAt = requireNonNull(now);
+        this.attemptStartedAt = startedAt;
+        this.lastProgressAt = startedAt;
+        this.leaseUntil = lease;
         this.processingOwnerId = requireNonNull(processingOwnerId);
+        this.attemptCount++;
+        this.retryCount = Math.max(0, this.attemptCount - 1);
         this.nextRetryAt = null;
         this.completedAt = null;
         this.failedAt = null;
@@ -97,7 +138,9 @@ public class OutboxEvent {
         validateProcessingOwner(processingOwnerId);
         this.status = OutboxEventStatus.COMPLETED;
         this.completedAt = requireNonNull(now);
-        this.processingStartedAt = null;
+        this.attemptStartedAt = null;
+        this.lastProgressAt = null;
+        this.leaseUntil = null;
         this.processingOwnerId = null;
         this.nextRetryAt = null;
     }
@@ -109,45 +152,140 @@ public class OutboxEvent {
             String errorMessage,
             String processingOwnerId
     ) {
+        failed(
+                maxRetryCount,
+                now,
+                nextRetryAt,
+                OutboxFailure.retryable(OutboxFailureCode.HANDLER_FAILURE, errorMessage),
+                processingOwnerId
+        );
+    }
+
+    public void failed(
+            int maxRetryCount,
+            LocalDateTime now,
+            LocalDateTime nextRetryAt,
+            OutboxFailure failure,
+            String processingOwnerId
+    ) {
         if (this.status != OutboxEventStatus.PROCESSING) {
             throw new IllegalStateException("Only PROCESSING events can be marked as failed");
         }
         validateProcessingOwner(processingOwnerId);
-        fail(maxRetryCount, now, nextRetryAt, errorMessage);
+        fail(maxRetryCount, now, nextRetryAt, failure);
     }
 
-    public void recoverTimedOut(
+    public void recoverExpired(
+            int maxRetryCount,
+            LocalDateTime now,
+            LocalDateTime nextRetryAt,
+            String errorMessage
+    ) {
+        recoverExpired(
+                maxRetryCount,
+                now,
+                nextRetryAt,
+                OutboxFailure.retryable(OutboxFailureCode.PROCESSING_TIMEOUT, errorMessage),
+                null
+        );
+    }
+
+    public void recoverExpired(
             int maxRetryCount,
             LocalDateTime now,
             LocalDateTime nextRetryAt,
             String errorMessage,
-            LocalDateTime timeoutThreshold
+            LocalDateTime legacyTimeoutThreshold
     ) {
-        if (!isProcessingTimedOut(timeoutThreshold)) {
-            throw new IllegalStateException("Only timed out PROCESSING events can be recovered");
-        }
-        fail(maxRetryCount, now, nextRetryAt, errorMessage);
+        recoverExpired(
+                maxRetryCount,
+                now,
+                nextRetryAt,
+                OutboxFailure.retryable(OutboxFailureCode.PROCESSING_TIMEOUT, errorMessage),
+                legacyTimeoutThreshold
+        );
     }
 
-    private void fail(int maxRetryCount, LocalDateTime now, LocalDateTime nextRetryAt, String errorMessage) {
-        this.retryCount++;
-        this.lastErrorMessage = truncate(errorMessage);
-        this.processingStartedAt = null;
+    public void recoverExpired(
+            int maxRetryCount,
+            LocalDateTime now,
+            LocalDateTime nextRetryAt,
+            OutboxFailure failure,
+            LocalDateTime legacyTimeoutThreshold
+    ) {
+        if (!isLeaseExpired(now, legacyTimeoutThreshold)) {
+            throw new IllegalStateException("Only lease-expired PROCESSING events can be recovered");
+        }
+        fail(maxRetryCount, now, nextRetryAt, failure);
+    }
+
+    private void fail(
+            int maxRetryCount,
+            LocalDateTime now,
+            LocalDateTime nextRetryAt,
+            OutboxFailure failure
+    ) {
+        OutboxFailure outboxFailure = requireNonNull(failure);
+        LocalDateTime failedAt = requireNonNull(now);
+        this.failureType = outboxFailure.type();
+        this.failureCode = outboxFailure.code();
+        this.lastExceptionType = truncate(outboxFailure.exceptionType());
+        this.lastErrorMessage = truncate(outboxFailure.message());
+        if (this.firstFailedAt == null) {
+            this.firstFailedAt = failedAt;
+        }
+        this.attemptStartedAt = null;
+        this.lastProgressAt = null;
+        this.leaseUntil = null;
         this.processingOwnerId = null;
-        if (this.retryCount >= maxRetryCount) {
+        if (outboxFailure.type() == OutboxFailureType.PERMANENT
+                || this.retryCount >= Math.max(0, maxRetryCount)) {
             this.status = OutboxEventStatus.FAILED;
-            this.failedAt = requireNonNull(now);
+            this.failedAt = failedAt;
             this.nextRetryAt = null;
             return;
         }
         this.status = OutboxEventStatus.PENDING;
         this.nextRetryAt = requireNonNull(nextRetryAt);
+        this.failedAt = null;
     }
 
-    public boolean isProcessingTimedOut(LocalDateTime timeoutThreshold) {
-        return this.status == OutboxEventStatus.PROCESSING
-                && this.processingStartedAt != null
-                && this.processingStartedAt.isBefore(timeoutThreshold);
+    public boolean isLeaseExpired(LocalDateTime now) {
+        return isLeaseExpired(now, null);
+    }
+
+    public boolean isLeaseExpired(LocalDateTime now, LocalDateTime legacyTimeoutThreshold) {
+        if (this.status != OutboxEventStatus.PROCESSING) {
+            return false;
+        }
+        if (this.leaseUntil != null) {
+            return !this.leaseUntil.isAfter(now);
+        }
+        return legacyTimeoutThreshold != null
+                && this.attemptStartedAt != null
+                && this.attemptStartedAt.isBefore(legacyTimeoutThreshold);
+    }
+
+    public void heartbeat(LocalDateTime now, LocalDateTime nextLeaseUntil, String processingOwnerId) {
+        LocalDateTime heartbeatAt = requireNonNull(now);
+        LocalDateTime lease = requireNonNull(nextLeaseUntil);
+        validateLeaseUpdate(heartbeatAt, lease, processingOwnerId);
+        this.leaseUntil = lease;
+    }
+
+    public void progress(LocalDateTime now, LocalDateTime nextLeaseUntil, String processingOwnerId) {
+        LocalDateTime progressAt = requireNonNull(now);
+        LocalDateTime lease = requireNonNull(nextLeaseUntil);
+        validateLeaseUpdate(progressAt, lease, processingOwnerId);
+        this.lastProgressAt = progressAt;
+        this.leaseUntil = lease;
+    }
+
+    public boolean isProgressStale(LocalDateTime now, Duration progressTimeout) {
+        if (this.lastProgressAt == null) {
+            return true;
+        }
+        return !this.lastProgressAt.plus(progressTimeout).isAfter(now);
     }
 
     public void retryManually(boolean resetRetryCount) {
@@ -155,18 +293,38 @@ public class OutboxEvent {
             throw new IllegalStateException("Only FAILED events can be retried manually");
         }
         this.status = OutboxEventStatus.PENDING;
-        this.processingStartedAt = null;
+        this.attemptStartedAt = null;
+        this.lastProgressAt = null;
+        this.leaseUntil = null;
         this.processingOwnerId = null;
         this.nextRetryAt = null;
         this.failedAt = null;
         if (resetRetryCount) {
             this.retryCount = 0;
+            this.attemptCount = 0;
         }
     }
 
     private void validateProcessingOwner(String processingOwnerId) {
         if (!requireNonNull(processingOwnerId).equals(this.processingOwnerId)) {
             throw new IllegalStateException("Only current processing owner can change PROCESSING event");
+        }
+    }
+
+    private void validateLeaseUpdate(
+            LocalDateTime now,
+            LocalDateTime nextLeaseUntil,
+            String processingOwnerId
+    ) {
+        if (this.status != OutboxEventStatus.PROCESSING) {
+            throw new IllegalStateException("Only PROCESSING events can receive a lease update");
+        }
+        if (isLeaseExpired(now)) {
+            throw new IllegalStateException("Processing lease has expired");
+        }
+        validateProcessingOwner(processingOwnerId);
+        if (!nextLeaseUntil.isAfter(now)) {
+            throw new IllegalArgumentException("Lease must be after progress time");
         }
     }
 

@@ -2,12 +2,19 @@ package com.dochiri.outboxpattern.infrastructure.adapter.in.web;
 
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEvent;
 import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxEventStatus;
+import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxFailureCode;
+import com.dochiri.outboxpattern.infrastructure.outbox.entity.OutboxFailureType;
 import com.dochiri.outboxpattern.infrastructure.outbox.repository.OutboxEventRepository;
 import com.dochiri.outboxpattern.infrastructure.outbox.worker.OutboxStatusService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -39,10 +46,15 @@ public class OutboxAdminController {
 
     @PostMapping("/{id}/retry")
     public ResponseEntity<Void> retry(
-            @PathVariable Long id,
-            @RequestParam(defaultValue = "false") boolean resetRetryCount
+            @PathVariable Long id
     ) {
-        outboxStatusService.retryManually(id, resetRetryCount);
+        outboxStatusService.retryManually(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/retry/reset")
+    public ResponseEntity<Void> retryWithReset(@PathVariable Long id) {
+        outboxStatusService.retryManuallyWithReset(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -52,8 +64,15 @@ public class OutboxAdminController {
             Long aggregateId,
             String eventType,
             OutboxEventStatus status,
+            int attemptCount,
             int retryCount,
-            LocalDateTime processingStartedAt,
+            OutboxFailureType failureType,
+            OutboxFailureCode failureCode,
+            String lastExceptionType,
+            LocalDateTime firstFailedAt,
+            LocalDateTime attemptStartedAt,
+            LocalDateTime lastProgressAt,
+            LocalDateTime leaseUntil,
             LocalDateTime nextRetryAt,
             LocalDateTime createdAt,
             LocalDateTime completedAt,
@@ -68,8 +87,15 @@ public class OutboxAdminController {
                     event.getAggregateId(),
                     event.getEventType(),
                     event.getStatus(),
+                    event.getAttemptCount(),
                     event.getRetryCount(),
-                    event.getProcessingStartedAt(),
+                    event.getFailureType(),
+                    event.getFailureCode(),
+                    event.getLastExceptionType(),
+                    event.getFirstFailedAt(),
+                    event.getAttemptStartedAt(),
+                    event.getLastProgressAt(),
+                    event.getLeaseUntil(),
                     event.getNextRetryAt(),
                     event.getCreatedAt(),
                     event.getCompletedAt(),

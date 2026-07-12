@@ -30,6 +30,7 @@ public class S3ClientConfiguration {
                 )
                 .region(Region.of(awsS3Properties.region()))
                 .forcePathStyle(true)
+                .overrideConfiguration(builder -> builder.apiCallTimeout(awsS3Properties.apiCallTimeout()))
                 .build();
     }
 
