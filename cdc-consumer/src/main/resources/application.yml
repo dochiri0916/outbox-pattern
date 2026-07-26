@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: ${CDC_DB_URL:jdbc:mysql://localhost:3306/outbox_pattern}
+    username: ${CDC_DB_USERNAME:outbox}
+    password: ${CDC_DB_PASSWORD:outbox}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  kafka:
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      properties:
+        isolation.level: read_committed
+
+outbox:
+  cdc:
+    kafka:
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    processing:
+      multipart-part-size-bytes: ${OUTBOX_CDC_MULTIPART_PART_SIZE_BYTES:5242880}
+    topic: ${OUTBOX_CDC_TOPIC:outbox-pattern.outbox_pattern.outbox_event}
+    group-id: ${OUTBOX_CDC_GROUP_ID:outbox-cdc-consumer}
