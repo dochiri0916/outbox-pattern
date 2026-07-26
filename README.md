@@ -1,5 +1,98 @@
 # Outbox Pattern
 
+## 멀티 모듈 구성
+
+```text
+core          공통 Domain, Application UseCase, Outbound Port, Outbox 메시지 계약
+polling-worker 기존 DB Polling + SKIP LOCKED 처리 방식
+cdc-consumer  Debezium CDC 이벤트를 Kafka에서 소비하는 처리 진입점
+```
+
+두 실행 모듈은 `core`의 계약을 공유하고 이벤트 획득 방식만 분리합니다. 따라서 멀티 인스턴스 환경에서
+Polling Worker의 DB lock 경쟁과 CDC Consumer의 Kafka consumer group 분산 처리를 같은 테스트 대상에서 비교할 수 있습니다.
+
+```bash
+./gradlew :polling-worker:check
+./gradlew :cdc-consumer:check
+./gradlew check
+```
+
+CDC Consumer는 Debezium Outbox SMT가 발행하는 `payload.op`/`payload.after` 형식을 입력으로 받으며,
+`outbox.cdc.topic`과 `outbox.cdc.group-id`로 토픽과 consumer group을 설정합니다.
+
+## 로컬 Debezium 실행
+
+```bash
+docker compose up -d mysql localstack kafka connect connector-init
+./gradlew :cdc-consumer:bootRun
+```
+
+`connector-init`이 Kafka Connect REST API에 `outbox-mysql-connector`를 등록하고,
+MySQL의 `outbox_pattern.outbox_event` 변경을 다음 토픽으로 발행합니다.
+
+```text
+outbox-pattern.outbox_pattern.outbox_event
+```
+
+Kafka는 호스트 애플리케이션에서 `localhost:29092`, Docker 내부 서비스에서 `kafka:9092`로 접근합니다.
+Kafka Connect REST API는 `http://localhost:8083`에서 확인할 수 있습니다.
+
+## 로컬 Worker 복제 실행
+
+Polling Worker 이미지는 `docker/polling-worker.Dockerfile`로 만들며, Compose의 `polling` profile에서 실행합니다.
+컨테이너 내부 포트는 모두 8080을 사용하고, 호스트 포트는 Compose가 replica별로 동적으로 할당합니다.
+
+```bash
+docker compose --profile polling up -d --build --scale polling-worker=10 polling-worker
+docker compose ps polling-worker
+docker compose port --index=1 polling-worker 8080
+docker compose logs -f polling-worker
+```
+
+CDC Consumer 이미지도 같은 방식으로 만들 수 있습니다. Kafka consumer group 분산을 확인할 때 사용합니다.
+
+```bash
+docker compose --profile cdc up -d --build --scale cdc-consumer=3 cdc-consumer
+docker compose ps cdc-consumer
+docker compose logs -f cdc-consumer
+```
+
+Polling과 CDC profile을 동시에 실행하면 동일한 Outbox 이벤트를 두 처리 경로가 각각 소비할 수 있으므로,
+비교 실험에서는 한 번에 하나의 profile만 실행합니다.
+
+## k6 부하 테스트와 Grafana
+
+Prometheus가 Polling Worker의 `/actuator/prometheus`와 MySQL exporter를 수집하고,
+Grafana는 Prometheus를 기본 데이터 소스로 사용합니다. k6 결과도 Prometheus Remote Write로 전송됩니다.
+
+```bash
+docker compose --profile polling --profile observability up -d --build \
+  --scale polling-worker=10 polling-worker prometheus mysql-exporter grafana
+
+docker compose --profile load-test run --rm k6
+```
+
+기본 k6 시나리오는 초당 1,000건을 60초 동안 `POST /api/v1/posts`로 발생시킵니다.
+로컬 환경에서 먼저 낮은 부하로 확인하려면 다음처럼 환경 변수를 덮어씁니다.
+
+```bash
+docker compose --profile load-test run --rm \
+  -e RATE=100 \
+  -e DURATION=30s \
+  k6
+```
+
+- Grafana: `http://localhost:3000` (`admin` / `admin`)
+- Prometheus: `http://localhost:9090`
+- 기본 대시보드: `Outbox / Outbox Polling Load Test`
+- k6 스크립트: `load-test/k6/outbox-insert.js`
+
+대시보드는 HTTP/k6 p99, Outbox pending·failed queue, Worker별 HikariCP connection,
+claim·processing p99, 처리량, MySQL connection·query 지표를 표시합니다.
+
+기존 MySQL volume을 이미 생성한 상태라면 초기화 SQL이 다시 실행되지 않으므로,
+처음 Debezium을 붙일 때는 기존 volume을 보존할지 확인한 뒤 재생성해야 합니다.
+
 파일 I/O가 포함된 쓰기 흐름에서, 트랜잭션은 짧게 유지하면서 커밋 이후 작업 유실을 방지하기 위해 Transactional Outbox를 검증한 프로젝트입니다.
 여기에는 실행 가능한 코드와 핵심 요약만 두고, 설계 배경과 선택 이유는 블로그에 정리했습니다.
 
