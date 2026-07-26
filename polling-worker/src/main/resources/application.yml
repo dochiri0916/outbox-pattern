@@ -1,0 +1,73 @@
+spring:
+  docker:
+    compose:
+      enabled: true
+      file: compose.yml
+      lifecycle-management: start-and-stop
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      jakarta.persistence.lock.timeout: ${OUTBOX_LOCK_WAIT_TIMEOUT_MS:1000}
+      hibernate:
+        jdbc:
+          time_zone: ${app.time-zone}
+        show_sql: true
+        format_sql: true
+        highlight_sql: true
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 50MB
+      file-size-threshold: 2MB
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  metrics:
+    tags:
+      application: polling-worker
+      worker_id: ${HOSTNAME:local}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        outbox.claim.duration: true
+        outbox.claim.lock.wait: true
+        outbox.processing.duration: true
+
+app:
+  time-zone: UTC
+  staging:
+    dir: /tmp/outbox-staging
+
+aws:
+  s3:
+    endpoint: http://localhost:4566
+    region: us-east-1
+    access-key: test
+    secret-key: test
+    bucket: local-test-bucket
+    api-call-timeout: 2m
+
+outbox:
+  worker:
+    enabled: true
+    batch-size: 10
+    max-retry-count: 3
+    processing-timeout: 5m
+    polling-delay: 30s
+    recovery-delay: 30s
+    retry-backoff-base: 10s
+    retry-backoff-max: 5m
+    retry-jitter-ratio: 0.5
+    multipart-part-size-bytes: 5242880
+    claim-strategy: skip-locked
