@@ -1,0 +1,334 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"polling-worker\",uri=\"/api/v1/posts\"}[$__rate_interval])))",
+          "legendFormat": "HTTP p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"polling-worker\",uri=\"/api/v1/posts\"}[$__rate_interval])))",
+          "legendFormat": "HTTP p99",
+          "refId": "B"
+        },
+        {
+          "expr": "k6_http_req_duration_p95{testid=~\"$testid\",endpoint=\"create-post\"}",
+          "legendFormat": "k6 p95",
+          "refId": "C"
+        },
+        {
+          "expr": "k6_http_req_duration_p99{testid=~\"$testid\",endpoint=\"create-post\"}",
+          "legendFormat": "k6 p99",
+          "refId": "D"
+        }
+      ],
+      "title": "Create Post Latency p95 / p99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(outbox_pending_events{application=\"polling-worker\"})",
+          "legendFormat": "pending",
+          "refId": "A"
+        },
+        {
+          "expr": "max(outbox_failed_events{application=\"polling-worker\"})",
+          "legendFormat": "failed",
+          "refId": "B"
+        }
+      ],
+      "title": "Outbox Queue",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (worker_id) (hikaricp_connections_active{application=\"polling-worker\"})",
+          "legendFormat": "active {{worker_id}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (worker_id) (hikaricp_connections_pending{application=\"polling-worker\"})",
+          "legendFormat": "pending {{worker_id}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (worker_id) (hikaricp_connections_max{application=\"polling-worker\"})",
+          "legendFormat": "max {{worker_id}}",
+          "refId": "C"
+        }
+      ],
+      "title": "HikariCP Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(outbox_claim_duration_seconds_bucket{application=\"polling-worker\"}[$__rate_interval])))",
+          "legendFormat": "claim p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(outbox_claim_duration_seconds_bucket{application=\"polling-worker\"}[$__rate_interval])))",
+          "legendFormat": "claim p99",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(outbox_processing_duration_seconds_bucket{application=\"polling-worker\"}[$__rate_interval])))",
+          "legendFormat": "processing p95",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(outbox_processing_duration_seconds_bucket{application=\"polling-worker\"}[$__rate_interval])))",
+          "legendFormat": "processing p99",
+          "refId": "D"
+        }
+      ],
+      "title": "Outbox Processing Latency p95 / p99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(outbox_claim_result_total{application=\"polling-worker\",result=\"claimed\"}[$__rate_interval]))",
+          "legendFormat": "claimed/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(outbox_processing_success_total{application=\"polling-worker\"}[$__rate_interval]))",
+          "legendFormat": "completed/s",
+          "refId": "B"
+        }
+      ],
+      "title": "Outbox Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "mysql_global_status_threads_connected",
+          "legendFormat": "connected",
+          "refId": "A"
+        },
+        {
+          "expr": "mysql_global_status_threads_running",
+          "legendFormat": "running",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(mysql_global_status_queries[$__rate_interval])",
+          "legendFormat": "queries/s",
+          "refId": "C"
+        }
+      ],
+      "title": "MySQL Activity",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "outbox",
+    "polling",
+    "k6"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "outbox-polling-baseline",
+          "value": "outbox-polling-baseline"
+        },
+        "definition": "label_values(k6_http_req_duration_p99, testid)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Test ID",
+        "multi": true,
+        "name": "testid",
+        "options": [],
+        "query": "label_values(k6_http_req_duration_p99, testid)",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "title": "Outbox Polling Load Test",
+  "uid": "outbox-polling-load",
+  "version": 1
+}

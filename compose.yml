@@ -1,20 +1,233 @@
 services:
   mysql:
     image: mysql:8.4
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --binlog-expire-logs-seconds=604800
     environment:
       MYSQL_DATABASE: outbox_pattern
       MYSQL_USER: outbox
       MYSQL_PASSWORD: outbox
       MYSQL_ROOT_PASSWORD: root
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      - "./docker/mysql/init:/docker-entrypoint-initdb.d:ro"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "outbox", "-poutbox"]
       interval: 5s
       timeout: 3s
       retries: 20
+
+  kafka:
+    image: quay.io/debezium/kafka:3.6
+    hostname: kafka
+    environment:
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      NODE_ID: 1
+      NODE_ROLE: combined
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_HEAP_OPTS: "-Xms256M -Xmx512M"
+    ports:
+      - "29092:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  connect:
+    image: quay.io/debezium/connect:3.6
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      REST_ADVERTISED_HOST_NAME: connect
+      KAFKA_HEAP_OPTS: "-Xms256M -Xmx768M"
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  connector-init:
+    image: curlimages/curl:8.10.1
+    depends_on:
+      connect:
+        condition: service_healthy
+    volumes:
+      - "./docker/debezium/register-outbox-connector.sh:/register-outbox-connector.sh:ro"
+      - "./docker/debezium/outbox-connector.json:/outbox-connector.json:ro"
+    entrypoint: ["/bin/sh", "/register-outbox-connector.sh"]
+    restart: "no"
+
+  polling-worker:
+    profiles: ["polling"]
+    build:
+      context: .
+      dockerfile: docker/polling-worker.Dockerfile
+    image: outbox-pattern/polling-worker:local
+    depends_on:
+      mysql:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    ports:
+      - "8080"
+    environment:
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/outbox_pattern
+      SPRING_DATASOURCE_USERNAME: outbox
+      SPRING_DATASOURCE_PASSWORD: outbox
+      OUTBOX_WORKER_ENABLED: ${OUTBOX_WORKER_ENABLED:-true}
+      APP_TIME_ZONE: UTC
+      APP_STAGING_DIR: /tmp/outbox-staging
+      AWS_S3_ENDPOINT: http://localstack:4566
+      AWS_S3_REGION: us-east-1
+      AWS_S3_ACCESS_KEY: test
+      AWS_S3_SECRET_KEY: test
+      AWS_S3_BUCKET: local-test-bucket
+      JAVA_TOOL_OPTIONS: "-Xms64m -Xmx384m"
+    volumes:
+      - outbox-staging-data:/tmp/outbox-staging
+
+  cdc-consumer:
+    profiles: ["cdc"]
+    build:
+      context: .
+      dockerfile: docker/cdc-consumer.Dockerfile
+    image: outbox-pattern/cdc-consumer:local
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      connect:
+        condition: service_healthy
+      connector-init:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/outbox_pattern
+      SPRING_DATASOURCE_USERNAME: outbox
+      SPRING_DATASOURCE_PASSWORD: outbox
+      OUTBOX_CDC_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      OUTBOX_CDC_TOPIC: outbox-pattern.outbox_pattern.outbox_event
+      OUTBOX_CDC_GROUP_ID: ${OUTBOX_CDC_GROUP_ID:-outbox-cdc-consumer}
+      SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET: ${OUTBOX_CDC_AUTO_OFFSET_RESET:-latest}
+      APP_STAGING_DIR: /tmp/outbox-staging
+      AWS_S3_ENDPOINT: http://localstack:4566
+      AWS_S3_REGION: us-east-1
+      AWS_S3_ACCESS_KEY: test
+      AWS_S3_SECRET_KEY: test
+      AWS_S3_BUCKET: local-test-bucket
+      JAVA_TOOL_OPTIONS: "-Xms64m -Xmx384m"
+    volumes:
+      - outbox-staging-data:/tmp/outbox-staging
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+    ports:
+      - "9090:9090"
+    volumes:
+      - "./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - prometheus-data:/prometheus
+
+  mysql-exporter:
+    profiles: ["observability"]
+    image: prom/mysqld-exporter:v0.17.2
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mysql-exporter-init:
+        condition: service_completed_successfully
+    command:
+      - --config.my-cnf=/etc/mysqld-exporter/.my.cnf
+      - --mysqld.address=mysql:3306
+    volumes:
+      - "./docker/mysql/exporter.my.cnf:/etc/mysqld-exporter/.my.cnf:ro"
+
+  mysql-exporter-init:
+    profiles: ["observability"]
+    image: mysql:8.4
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - "./docker/mysql/grant-exporter-user.sh:/grant-exporter-user.sh:ro"
+    entrypoint: ["/bin/sh", "/grant-exporter-user.sh"]
+    restart: "no"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:12.1.0
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - "./docker/grafana/provisioning:/etc/grafana/provisioning:ro"
+      - "./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro"
+
+  k6:
+    profiles: ["load-test"]
+    image: grafana/k6:latest
+    environment:
+      BASE_URL: http://polling-worker:8080
+      RATE: "1000"
+      DURATION: 60s
+      PRE_ALLOCATED_VUS: "200"
+      MAX_VUS: "1000"
+      TEST_ID: outbox-polling-baseline
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: p(95),p(99),max
+    volumes:
+      - "./load-test/k6:/scripts:ro"
+    command:
+      - run
+      - --out
+      - experimental-prometheus-rw
+      - /scripts/outbox-insert.js
 
   localstack:
     image: localstack/localstack:3
@@ -35,3 +248,6 @@ services:
 volumes:
   mysql-data:
   localstack-data:
+  prometheus-data:
+  grafana-data:
+  outbox-staging-data:
